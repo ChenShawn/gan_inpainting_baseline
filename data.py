@@ -71,7 +71,7 @@ def recursive_path(path, result, word=None):
 
 
 class CelebAReader(object):
-    data_path = ''
+    data_path = 'E:/datasets/CelebA/img_align_celeba/'
 
     def __init__(self, size=(218, 178), batch_size=32, num_epochs=50):
         file_xs = list()
@@ -83,6 +83,24 @@ class CelebAReader(object):
         data = data.map(parse_images)
         self.data = data.shuffle(buffer_size=1024).batch(batch_size).repeat(num_epochs)
         self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
-                                   shape=[batch_size, size[0], size[1], -1])
+                                   shape=[batch_size, size[0], size[1], 3])
 
-        self.lossy_xs = random_mask(self.batch_xs, blocked_pixel_value=0.0001)
+        self.lossy_xs, self.mask = random_mask(self.batch_xs, blocked_pixel_value=0.0001)
+
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    reader = CelebAReader()
+    sess = tf.Session()
+
+    xs, ys, mask = sess.run([reader.batch_xs, reader.lossy_xs, reader.mask])
+
+    for it in range(32):
+        plt.figure()
+        plt.subplot(131)
+        plt.imshow(xs[it, :, :, :])
+        plt.subplot(132)
+        plt.imshow(ys[it, :, :, :])
+        plt.subplot(133)
+        plt.imshow(mask[it, :, :, :])
+        plt.show()
