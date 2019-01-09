@@ -1,7 +1,6 @@
 import tensorflow as tf
 import numpy as np
 import argparse
-from tqdm import tqdm
 
 from gan_utils import *
 from utils import show_all_variables, total_variation_loss, save, load
@@ -9,11 +8,11 @@ from data import CelebAReader
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-d', '--dataset', type=str, default='celeba', help='support only CelebA currently')
-parser.add_argument('-f', '--function', type=str, default='train', help='`pretrain`, `train` or `eval`')
+parser.add_argument('-f', '--function', type=str, default='pretrain', help='`pretrain`, `train` or `eval`')
 parser.add_argument('--logdir', type=str, default='./logs', help='dir for tensorboard logs')
 parser.add_argument('--model_path', type=str, default='./ckpt', help='dir for checkpoints')
 parser.add_argument('-b', '--batch_size', type=int, default=32, help='batch size')
-parser.add_argument('-i', '--iterations', type=int, default=20000, help='number of training iterations')
+parser.add_argument('-i', '--iterations', type=int, default=1000, help='number of training iterations')
 parser.add_argument('-p', '--pretrain', type=bool, default=True, help='whether to load model from ckpt')
 parser.add_argument('-a', '--allow_growth', type=bool, default=True, help='whether to grab all gpu resources')
 parser.add_argument('--gp_lambda', type=float, default=0.25, help='coefficient for GP loss term')
@@ -44,13 +43,14 @@ class BaselineModel(object):
         g_loss = tf.negative(d_fake_loss)
 
         # Gradient penalty
-        epsilon = tf.random_uniform(shape=self.generator.get_shape(), minval=0.0, maxval=1.0)
-        interpolates = self.generator + epsilon * (self.generator - clean_image)
-        d_gp, _ = build_dcgan_discriminator(interpolates, is_training, reuse=True)
-        grads = tf.gradients(d_gp, [interpolates])[0]
-        slopes = tf.sqrt(tf.reduce_sum(tf.square(grads), reduction_indices=[1]))
-        gp = tf.reduce_mean(tf.square(slopes - 1), name='gradient_penalty')
-        self.d_loss = d_real_loss + d_fake_loss + args.gp_lambda * gp
+        with tf.variable_scope(self.name, reuse=True):
+            epsilon = tf.random_uniform(shape=self.generator.get_shape(), minval=0.0, maxval=1.0)
+            interpolates = self.generator + epsilon * (self.generator - clean_image)
+            d_gp, _ = build_dcgan_discriminator(interpolates, is_training, reuse=True)
+            grads = tf.gradients(d_gp, [interpolates])[0]
+            slopes = tf.sqrt(tf.reduce_sum(tf.square(grads), reduction_indices=[1]))
+            gp = tf.reduce_mean(tf.square(slopes - 1), name='gradient_penalty')
+            self.d_loss = d_real_loss + d_fake_loss + args.gp_lambda * gp
 
         # Reconstruction loss (termed as valid loss in partial-conv paper)
         masked = (self.generator - input_op) * self.pi_mask
@@ -109,13 +109,16 @@ class BaselineModel(object):
         d_vars = [var for var in train_vars if 'Discriminator' in var.name]
         self.pi_optim = tf.train.AdamOptimizer(args.learning_rate).minimize(self.pi_loss, var_list=pi_vars)
         self.g_optim = tf.train.AdamOptimizer(args.learning_rate, 0.5, 0.9).minimize(self.g_loss, var_list=g_vars)
+        print('flag1')
         self.d_optim = tf.train.AdamOptimizer(args.learning_rate, 0.5, 0.9).minimize(self.d_loss, var_list=d_vars)
+        print('flag2')
         print(' [*] Optimizers definition finished')
 
 
 
 def pretrain(sess, model, global_step=0):
     counter = global_step
+    print(' [*] Start training in global step', counter)
     writer = tf.summary.FileWriter(args.logdir, sess.graph)
     for iter in range(args.iterations):
         try:
@@ -169,16 +172,30 @@ def evaluate():
 
 
 if __name__ == '__main__':
-    if args.function == 'train':
-        executed = train
+    if args.dataset == 'celeba':
+        print(' [*] Reading CelebA dataset...')
+        # Resize the image to even size to avoid concat-time error
+        reader = CelebAReader(size=(192, 160))
+    else:
+        raise NotImplementedError('Only CelebA supported!')
+
+    # Pretrain model
+    if args.function == 'pretrain':
+        model = BaselineModel(reader.lossy_xs, reader.batch_xs, reader.mask)
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        sess = tf.Session(config=config)
+        tf.global_variables_initializer().run()
+
+        if args.pretrain:
+            status, global_step = load(sess, args.model_path)
+        else:
+            global_step = 0
+        train(sess, model, global_step=global_step)
+
     elif args.function == 'eval':
         executed = evaluate
-    elif args.function == 'pretrain':
+    elif args.function == 'train':
         executed = pretrain
     else:
         raise NotImplementedError('Invalid function input')
-
-    if args.dataset == 'celeba':
-        dataset = CelebAReader()
-
-    ans = executed()

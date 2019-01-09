@@ -24,11 +24,11 @@ def coord_conv(input_op, *args, **kwargs):
     :param *args, **kwargs: params required to pass to function tf.layers.conv2d
     """
     batch_size, width, height, _ = input_op.get_shape().as_list()
-    horizontal = np.array([list(range(width)) for _ in range(height)], dtype=np.float32)
+    horizontal = np.array([list(range(width)) for _ in range(height)], dtype=np.float32).transpose()
     vertical = np.array([list(range(height)) for _ in range(width)], dtype=np.float32)
     coords = np.concatenate([horizontal[:, :, None], vertical[:, :, None]], axis=-1)
     coords = (coords - coords.mean()) / coords.max()
-    coords_array = np.array([coords[None, :, :, :] for _ in batch_size], dtype=np.float32)
+    coords_array = np.concatenate([coords[None, :, :, :] for _ in range(batch_size)], axis=0)
 
     coords_tensor = tf.convert_to_tensor(coords_array, dtype=tf.float32)
     input_tensor = tf.concat([input_op, coords_tensor], axis=-1)
