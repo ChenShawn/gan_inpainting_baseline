@@ -43,14 +43,9 @@ class BaselineModel(object):
         g_loss = tf.negative(d_fake_loss)
 
         # Gradient penalty
-        with tf.variable_scope(self.name, reuse=True):
-            epsilon = tf.random_uniform(shape=self.generator.get_shape(), minval=0.0, maxval=1.0)
-            interpolates = self.generator + epsilon * (self.generator - clean_image)
-            d_gp, _ = build_dcgan_discriminator(interpolates, is_training, reuse=True)
-            grads = tf.gradients(d_gp, [interpolates])[0]
-            slopes = tf.sqrt(tf.reduce_sum(tf.square(grads), reduction_indices=[1]))
-            gp = tf.reduce_mean(tf.square(slopes - 1), name='gradient_penalty')
-            self.d_loss = d_real_loss + d_fake_loss + args.gp_lambda * gp
+        gp_vars = [var for var in tf.trainable_variables() if 'Discriminator' in var.name]
+        gp = tf.add_n([tf.reduce_sum(var) for var in gp_vars])
+        self.d_loss = d_real_loss + d_fake_loss + args.gp_lambda * gp
 
         # Reconstruction loss (termed as valid loss in partial-conv paper)
         masked = (self.generator - input_op) * self.pi_mask
@@ -109,7 +104,6 @@ class BaselineModel(object):
         d_vars = [var for var in train_vars if 'Discriminator' in var.name]
         self.pi_optim = tf.train.AdamOptimizer(args.learning_rate).minimize(self.pi_loss, var_list=pi_vars)
         self.g_optim = tf.train.AdamOptimizer(args.learning_rate, 0.5, 0.9).minimize(self.g_loss, var_list=g_vars)
-        print('flag1')
         self.d_optim = tf.train.AdamOptimizer(args.learning_rate, 0.5, 0.9).minimize(self.d_loss, var_list=d_vars)
         print('flag2')
         print(' [*] Optimizers definition finished')
@@ -184,14 +178,14 @@ if __name__ == '__main__':
         model = BaselineModel(reader.lossy_xs, reader.batch_xs, reader.mask)
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
-        sess = tf.Session(config=config)
-        tf.global_variables_initializer().run()
 
-        if args.pretrain:
-            status, global_step = load(sess, args.model_path)
-        else:
-            global_step = 0
-        train(sess, model, global_step=global_step)
+        with tf.Session(config=config) as sess:
+            tf.global_variables_initializer().run()
+            if args.pretrain:
+                status, global_step = load(sess, args.model_path)
+            else:
+                global_step = 0
+            train(sess, model, global_step=global_step)
 
     elif args.function == 'eval':
         executed = evaluate
