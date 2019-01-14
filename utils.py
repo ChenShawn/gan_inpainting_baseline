@@ -55,15 +55,16 @@ def total_variation_loss(image):
 def random_mask(images, ratio=2, blocked_pixel_value=0.0):
     batch_size, height, width, channels = images.get_shape().as_list()
     mask_shape = [1, height // ratio, width // ratio, channels]
-    off_h = tf.random_uniform([batch_size], 0, (height // ratio) * (ratio - 1), dtype=tf.int32)
-    off_w = tf.random_uniform([batch_size], 0, (width // ratio) * (ratio - 1), dtype=tf.int32)
-    masks = [tf.ones(mask_shape, dtype=tf.float32) for _ in range(batch_size)]
-    paddings = [tf.image.pad_to_bounding_box(masks[it], off_h[it], off_w[it], height, width)
-                for it in range(batch_size)]
+    with tf.name_scope('RandomMask'):
+        off_h = tf.random_uniform([batch_size], 0, (height // ratio) * (ratio - 1), dtype=tf.int32)
+        off_w = tf.random_uniform([batch_size], 0, (width // ratio) * (ratio - 1), dtype=tf.int32)
+        masks = [tf.ones(mask_shape, dtype=tf.float32) for _ in range(batch_size)]
+        paddings = [tf.image.pad_to_bounding_box(masks[it], off_h[it], off_w[it], height, width)
+                    for it in range(batch_size)]
 
-    mask_tensor = tf.concat(paddings, axis=0)
-    masking = tf.cast(mask_tensor, dtype=tf.float32)
-    results = images * (1.0 - masking) + masking * blocked_pixel_value
+        mask_tensor = tf.concat(paddings, axis=0)
+        masking = tf.cast(mask_tensor, dtype=tf.float32)
+        results = images * (1.0 - masking) + masking * blocked_pixel_value
     return results, mask_tensor
 
 
@@ -87,10 +88,16 @@ def load(sess, model_path):
     ckpt = tf.train.get_checkpoint_state(model_path)
     if ckpt and ckpt.model_checkpoint_path:
         ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
-        saver.restore(sess, model_path + ckpt_name)
+        saver.restore(sess, os.path.join(model_path, ckpt_name))
         counter = int(next(re.finditer("(\d+)(?!.*\d)", ckpt_name)).group(0))
         print(" [*] Success to read {}".format(ckpt_name))
         return True, counter
     else:
         print(" [*] Failed to find a checkpoint")
         return False, 0
+
+
+def log10(x):
+    numerator = tf.log(x)
+    denominator = tf.log(tf.constant(10, dtype=numerator.dtype))
+    return numerator / denominator

@@ -71,7 +71,7 @@ def recursive_path(path, result, word=None):
 
 
 class CelebAReader(object):
-    data_path = 'E:/datasets/CelebA/img_align_celeba/'
+    data_path = 'D:\\毕业论文\\data\\CelebA\\img_align_celeba\\'
 
     def __init__(self, size=(218, 178), batch_size=32, num_epochs=50):
         file_xs = list()
@@ -85,23 +85,53 @@ class CelebAReader(object):
         self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
                                    shape=[batch_size, size[0], size[1], 3])
 
-        self.lossy_xs, mask = random_mask(self.batch_xs, blocked_pixel_value=0.0001)
+        self.lossy_xs, mask = random_mask(self.batch_xs,
+                                          blocked_pixel_value=tf.random_uniform([], minval=0.0, maxval=1.0))
         self.mask = tf.reduce_max(mask, axis=-1, keepdims=True)
+
+
+class MnistReader(object):
+    data_path = 'D:\\毕业论文\\tensorflow-generative-model-collections-master\\data\\mnist.npz'
+
+    def __init__(self, size=(28, 28),batch_size=256, num_epochs=50):
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+
+        with np.load(self.data_path) as f:
+            x_train = np.expand_dims(f['x_train'], axis=3).astype(np.float32)
+
+        self.data = tf.data.Dataset.from_tensor_slices(x_train)
+        self.data = self.data.shuffle(buffer_size=1024).batch(batch_size).repeat(num_epochs)
+        self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
+                                   shape=[batch_size, size[0], size[1], 1])
+        self.batch_xs = tf.image.resize_images(self.batch_xs, (32, 32))
+
+        # blocked_pixel_value = tf.random_uniform([], minval=x_train.min(), maxval=x_train.max())
+        self.lossy_xs, mask = random_mask(self.batch_xs, blocked_pixel_value=0.0)
+        self.mask = tf.reduce_max(mask, axis=-1, keepdims=True)
+
 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    reader = CelebAReader()
-    sess = tf.Session()
+    reader = MnistReader()
 
-    xs, ys, mask = sess.run([reader.batch_xs, reader.lossy_xs, reader.mask])
+    with tf.Session() as sess:
+        xs, ys, mask = sess.run([reader.batch_xs, reader.lossy_xs, reader.mask])
+        print(xs.shape, ys.shape, mask.shape, xs.min(), xs.max())
 
     for it in range(32):
         plt.figure()
         plt.subplot(131)
-        plt.imshow(xs[it, :, :, :])
+        plt.imshow(xs[it, :, :, 0], cmap='gray')
+        plt.title('Clean image')
+        plt.axis('off')
         plt.subplot(132)
-        plt.imshow(ys[it, :, :, :])
+        plt.title('Masked image')
+        plt.imshow(ys[it, :, :, 0], cmap='gray')
+        plt.axis('off')
         plt.subplot(133)
-        plt.imshow(mask[it, :, :, :])
+        plt.title('Mask')
+        plt.imshow(mask[it, :, :, 0], cmap='gray')
+        plt.axis('off')
         plt.show()
