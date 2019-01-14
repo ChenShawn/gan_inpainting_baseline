@@ -4,13 +4,13 @@ import argparse
 
 from gan_utils import *
 from utils import show_all_variables, total_variation_loss, save, load, log10
-from data import CelebAReader
+from data import CelebAReader, MnistReader
 from datetime import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-d', '--dataset', type=str, default='celeba', help='support only CelebA currently')
 parser.add_argument('-f', '--function', type=str, default='train', help='`pretrain`, `train` or `eval`')
-parser.add_argument('--logdir', type=str, default='./logs', help='dir for tensorboard logs')
+parser.add_argument('--logdir', type=str, default='./logs' , help='dir for tensorboard logs')
 parser.add_argument('--model_path', type=str, default='./ckpt', help='dir for checkpoints')
 parser.add_argument('-b', '--batch_size', type=int, default=32, help='batch size')
 parser.add_argument('-i', '--iterations', type=int, default=60000, help='number of training iterations')
@@ -18,9 +18,9 @@ parser.add_argument('-p', '--pretrain', type=bool, default=True, help='whether t
 parser.add_argument('-a', '--allow_growth', type=bool, default=True, help='whether to grab all gpu resources')
 parser.add_argument('--gp_lambda', type=float, default=0.005, help='coefficient for GP loss term')
 parser.add_argument('--learning_rate', type=float, default=2e-4, help='learning_rate')
-parser.add_argument('--alpha', type=float, default=0.01, help='initial value of perceptual loss coefficient')
-parser.add_argument('--beta', type=float, default=1e-6, help='coefficient for TV loss')
-parser.add_argument('--gamma', type=float, default=0.05, help='coefficient  for reconstruction loss')
+parser.add_argument('--alpha', type=float, default=1.0, help='initial value of perceptual loss coefficient')
+parser.add_argument('--beta', type=float, default=1e-5, help='coefficient for TV loss')
+parser.add_argument('--gamma', type=float, default=4e-5, help='coefficient for reconstruction loss')
 parser.add_argument('--write_logs_every', type=int, default=20, help='write_logs_every')
 parser.add_argument('--save_images_every', type=int, default=500, help='save_images_every')
 parser.add_argument('--critic_iter', type=int, default=3, help='number of iterations to update critics')
@@ -28,15 +28,15 @@ args = parser.parse_args()
 
 
 class BaselineModel(object):
-    name = 'BaselineModel'
+    name = 'LeNetModel'
 
     def __init__(self, input_op, clean_image, mask, is_training=True, num_channels=3):
         with tf.variable_scope(self.name):
-            self.generator = build_unet_generator(input_op, is_training=is_training, num_channels=num_channels)
-            self.pi_logits, self.pi_probs = build_unet_policy(input_op, is_training=is_training)
+            self.generator = build_lenet_generator(input_op)
+            self.pi_logits, self.pi_probs = build_lenet_policy(input_op)
             self.pi_mask = tf.cast(self.pi_probs < 0.5, dtype=tf.float32, name='mask')
-            self.d_real, real_ends = build_dcgan_discriminator(clean_image, is_training)
-            self.d_fake, fake_ends = build_dcgan_discriminator(self.generator, is_training, reuse=True)
+            self.d_real, real_ends = build_dcgan_discriminator(clean_image, is_training, min_filters=32)
+            self.d_fake, fake_ends = build_dcgan_discriminator(self.generator, is_training, reuse=True, min_filters=32)
         print(' [*] Build model finished')
 
         # Definition of loss function, by default we use WGAN loss with GP
@@ -118,7 +118,7 @@ def pretrain(sess, model, global_step=0):
     counter = global_step
     print(' [*] Start training in global step', counter)
     writer = tf.summary.FileWriter(args.logdir, sess.graph)
-    for iter in range(args.iterations):
+    for iter in range(1200):
         try:
             sess.run(model.pi_optim)
             # Write logs for tensorboard visualization
@@ -192,12 +192,15 @@ if __name__ == '__main__':
         print(' [*] Reading CelebA dataset...')
         # Resize the image to even size to avoid concat-time error
         reader = CelebAReader(size=(192, 160))
+    elif args.dataset == 'mnist':
+        print(' [*] Reading Mnist dataset...')
+        reader = MnistReader(size=(28, 28))
     else:
         raise NotImplementedError('Only CelebA supported!')
 
     # Pretrain model
     if args.function == 'train':
-        model = BaselineModel(reader.lossy_xs, reader.batch_xs, reader.mask)
+        model = BaselineModel(reader.lossy_xs, reader.batch_xs, reader.mask, num_channels=1)
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
 
@@ -208,6 +211,7 @@ if __name__ == '__main__':
             else:
                 global_step = 0
             show_all_variables()
+            global_step = pretrain(sess, model, global_step=global_step)
             train(sess, model, global_step=global_step)
 
     elif args.function == 'eval':

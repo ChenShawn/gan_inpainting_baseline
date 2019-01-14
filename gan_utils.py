@@ -2,6 +2,21 @@ import tensorflow as tf
 from utils import batch_norm, coord_conv
 
 
+def build_lenet(input_op):
+    params = {'kernel_size': 5, 'padding': 'same', 'use_bias': True, 'activation': tf.nn.leaky_relu,
+              'strides': 2, 'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
+    conv_1 = coord_conv(input_op, 32, name='conv_1', **params)
+    conv_2 = tf.layers.conv2d(conv_1, 64, name='conv_2', **params)
+    conv_3 = tf.layers.conv2d(conv_2, 128, name='conv_3', **params)
+
+    params = {'kernel_size': 5, 'strides': 2, 'padding': 'same',  'activation': tf.nn.leaky_relu,
+              'use_bias': True, 'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
+    deconv_1 = tf.layers.conv2d_transpose(conv_3, 64, name='deconv_1', **params)
+    deconv_2 = tf.layers.conv2d_transpose(tf.concat([deconv_1, conv_2], axis=-1), 32, name='deconv_2', **params)
+    params['activation'] = None
+    return tf.layers.conv2d_transpose(tf.concat([deconv_2, conv_1], axis=-1), 1, name='deconv_3', **params)
+
+
 def build_unet(input_op, is_training=True, num_channels=3):
     # Definition of encoder network
     conv_1 = coord_conv(input_op, 64, kernel_size=3, padding='same', name='conv_1', use_bias=False,
@@ -60,9 +75,26 @@ def build_unet(input_op, is_training=True, num_channels=3):
                             kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
 
 
+def build_lenet_generator(input_op, reuse=False, scope='LeGenerator', last_layer_activation=tf.sigmoid):
+    """build_lenet_generator
+    :param last_layer_activation: either tf.tanh or tf.sigmoid is recommended
+    """
+    with tf.variable_scope(scope, reuse=reuse):
+        logits = build_lenet(input_op)
+        return last_layer_activation(logits)
+
+
+def build_lenet_policy(input_op, reuse=False, scope='LePolicy'):
+    """build_lenet_policy"""
+    with tf.variable_scope(scope, reuse=reuse):
+        logits = build_lenet(input_op)
+        probs = tf.nn.sigmoid(logits)
+    return logits, probs
+
+
 def build_unet_generator(input_op, is_training=True, num_channels=3, reuse=False, scope='UGenerator',
                          last_layer_activation=tf.sigmoid, **kwargs):
-    """
+    """build_unet_generator
     :param is_training: should be set to False when evaluating
     :param last_layer_activation: either tf.tanh or tf.sigmoid is recommended
     """
