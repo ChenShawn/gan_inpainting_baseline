@@ -17,10 +17,10 @@ parser.add_argument('-i', '--iterations', type=int, default=60000, help='number 
 parser.add_argument('-p', '--pretrain', type=bool, default=True, help='whether to load model from ckpt')
 parser.add_argument('-a', '--allow_growth', type=bool, default=True, help='whether to grab all gpu resources')
 parser.add_argument('--gp_lambda', type=float, default=0.005, help='coefficient for GP loss term')
-parser.add_argument('--learning_rate', type=float, default=2e-4, help='learning_rate')
+parser.add_argument('--learning_rate', type=float, default=2e-5, help='learning_rate')
 parser.add_argument('--alpha', type=float, default=1.0, help='initial value of perceptual loss coefficient')
 parser.add_argument('--beta', type=float, default=1e-5, help='coefficient for TV loss')
-parser.add_argument('--gamma', type=float, default=4e-5, help='coefficient for reconstruction loss')
+parser.add_argument('--gamma', type=float, default=4e-6, help='coefficient for reconstruction loss')
 parser.add_argument('--write_logs_every', type=int, default=20, help='write_logs_every')
 parser.add_argument('--save_images_every', type=int, default=500, help='save_images_every')
 parser.add_argument('--critic_iter', type=int, default=3, help='number of iterations to update critics')
@@ -32,8 +32,8 @@ class BaselineModel(object):
 
     def __init__(self, input_op, clean_image, mask, is_training=True, num_channels=3):
         with tf.variable_scope(self.name):
-            self.generator = build_lenet_generator(input_op)
-            self.pi_logits, self.pi_probs = build_lenet_policy(input_op)
+            self.generator = build_lenet_generator(input_op,is_training)
+            self.pi_logits, self.pi_probs = build_lenet_policy(input_op, is_training)
             self.pi_mask = tf.cast(self.pi_probs < 0.5, dtype=tf.float32, name='mask')
             self.d_real, real_ends = build_dcgan_discriminator(clean_image, is_training, min_filters=32)
             self.d_fake, fake_ends = build_dcgan_discriminator(self.generator, is_training, reuse=True, min_filters=32)
@@ -121,6 +121,7 @@ def pretrain(sess, model, global_step=0):
     for iter in range(1200):
         try:
             sess.run(model.pi_optim)
+            sess.run(model.rec_loss)
             # Write logs for tensorboard visualization
             if iter % args.write_logs_every == 1:
                 sum_str = sess.run(model.pi_sum)
@@ -211,12 +212,12 @@ if __name__ == '__main__':
             else:
                 global_step = 0
             show_all_variables()
-            global_step = pretrain(sess, model, global_step=global_step)
+            # global_step = pretrain(sess, model, global_step=global_step)
             train(sess, model, global_step=global_step)
 
     elif args.function == 'eval':
         executed = evaluate
-    elif args.function == 'train':
+    elif args.function == 'pretrain':
         executed = pretrain
     else:
         raise NotImplementedError('Invalid function input')

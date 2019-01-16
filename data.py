@@ -93,12 +93,12 @@ class CelebAReader(object):
 class MnistReader(object):
     data_path = 'D:\\毕业论文\\tensorflow-generative-model-collections-master\\data\\mnist.npz'
 
-    def __init__(self, size=(28, 28),batch_size=256, num_epochs=50):
+    def __init__(self, size=(28, 28),batch_size=256, num_epochs=500, type='x_train'):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
 
         with np.load(self.data_path) as f:
-            x_train = np.expand_dims(f['x_train'], axis=3).astype(np.float32)
+            x_train = np.expand_dims(f[type], axis=3).astype(np.float32)
 
         self.data = tf.data.Dataset.from_tensor_slices(x_train)
         self.data = self.data.shuffle(buffer_size=1024).batch(batch_size).repeat(num_epochs)

@@ -2,17 +2,21 @@ import tensorflow as tf
 from utils import batch_norm, coord_conv
 
 
-def build_lenet(input_op):
-    params = {'kernel_size': 5, 'padding': 'same', 'use_bias': True, 'activation': tf.nn.leaky_relu,
+def build_lenet(input_op, is_training=True):
+    params = {'kernel_size': 5, 'padding': 'same', 'use_bias': False, 'activation': tf.nn.leaky_relu,
               'strides': 2, 'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
     conv_1 = coord_conv(input_op, 32, name='conv_1', **params)
+    conv_1 = tf.nn.relu(batch_norm(conv_1, is_training=is_training, name='bn_1'))
     conv_2 = tf.layers.conv2d(conv_1, 64, name='conv_2', **params)
+    conv_2 = tf.nn.relu(batch_norm(conv_2, is_training=is_training, name='bn_2'))
     conv_3 = tf.layers.conv2d(conv_2, 128, name='conv_3', **params)
+    conv_3 = tf.nn.relu(batch_norm(conv_3, is_training=is_training, name='bn_3'))
 
     params = {'kernel_size': 5, 'strides': 2, 'padding': 'same',  'activation': tf.nn.leaky_relu,
-              'use_bias': True, 'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
+              'use_bias': False, 'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
     deconv_1 = tf.layers.conv2d_transpose(conv_3, 64, name='deconv_1', **params)
     deconv_2 = tf.layers.conv2d_transpose(tf.concat([deconv_1, conv_2], axis=-1), 32, name='deconv_2', **params)
+    deconv_2 = tf.nn.relu(batch_norm(deconv_2, is_training=is_training, name='bn_4'))
     params['activation'] = None
     return tf.layers.conv2d_transpose(tf.concat([deconv_2, conv_1], axis=-1), 1, name='deconv_3', **params)
 
@@ -75,19 +79,19 @@ def build_unet(input_op, is_training=True, num_channels=3):
                             kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
 
 
-def build_lenet_generator(input_op, reuse=False, scope='LeGenerator', last_layer_activation=tf.sigmoid):
+def build_lenet_generator(input_op, is_training=True, reuse=False, scope='LeGenerator', last_layer_activation=tf.sigmoid):
     """build_lenet_generator
     :param last_layer_activation: either tf.tanh or tf.sigmoid is recommended
     """
     with tf.variable_scope(scope, reuse=reuse):
-        logits = build_lenet(input_op)
+        logits = build_lenet(input_op, is_training)
         return last_layer_activation(logits)
 
 
-def build_lenet_policy(input_op, reuse=False, scope='LePolicy'):
+def build_lenet_policy(input_op, is_training=True, reuse=False, scope='LePolicy'):
     """build_lenet_policy"""
     with tf.variable_scope(scope, reuse=reuse):
-        logits = build_lenet(input_op)
+        logits = build_lenet(input_op, is_training)
         probs = tf.nn.sigmoid(logits)
     return logits, probs
 
