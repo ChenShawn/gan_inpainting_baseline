@@ -85,9 +85,8 @@ class CelebAReader(object):
         self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
                                    shape=[batch_size, size[0], size[1], 3])
 
-        self.lossy_xs, mask = random_mask(self.batch_xs,
-                                          blocked_pixel_value=tf.random_uniform([], minval=0.0, maxval=1.0))
-        self.mask = tf.reduce_max(mask, axis=-1, keepdims=True)
+        blocked_pixel_value = tf.random_uniform([], minval=0.0, maxval=1.0)
+        self.lossy_xs, self.mask = random_mask(self.batch_xs, blocked_pixel_value)
 
 
 class MnistReader(object):
