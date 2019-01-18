@@ -93,17 +93,18 @@ class CelebAReader(object):
 class MnistReader(object):
     data_path = 'D:\\毕业论文\\tensorflow-generative-model-collections-master\\data\\mnist.npz'
 
-    def __init__(self, size=(28, 28),batch_size=256, num_epochs=50):
+    def __init__(self, size=(28, 28),batch_size=256, num_epochs=500, type='train'):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
 
         with np.load(self.data_path) as f:
-            x_train = np.expand_dims(f['x_train'], axis=3).astype(np.float32)
+            x_train = np.expand_dims(f['x_' + type], axis=3).astype(np.float32)
+            y_train = f['y_' + type].astype(np.int32)
 
-        self.data = tf.data.Dataset.from_tensor_slices(x_train)
+        self.data = tf.data.Dataset.from_tensor_slices((x_train, y_train))
         self.data = self.data.shuffle(buffer_size=1024).batch(batch_size).repeat(num_epochs)
-        self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
-                                   shape=[batch_size, size[0], size[1], 1])
+        self.batch_xs, self.batch_ys = self.data.make_one_shot_iterator().get_next()
+        self.batch_xs = tf.reshape(self.batch_xs, [batch_size, size[0], size[1], 1])
         self.batch_xs = tf.image.resize_images(self.batch_xs, (32, 32))
 
         # blocked_pixel_value = tf.random_uniform([], minval=x_train.min(), maxval=x_train.max())
