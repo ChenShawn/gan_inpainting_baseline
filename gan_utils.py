@@ -1,5 +1,28 @@
 import tensorflow as tf
 from utils import batch_norm, coord_conv
+from tensorflow.contrib.slim.nets import vgg
+from tensorflow.contrib import slim
+
+
+def build_lenet(input_op, is_training=True):
+    params = {'kernel_size': 5, 'padding': 'same', 'use_bias': False, 'activation': None,
+              'strides': 2, 'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
+    conv_1 = coord_conv(input_op, 32, name='conv_1', **params)
+    conv_1 = tf.nn.leaky_relu(batch_norm(conv_1, is_training=is_training, name='bn_1'))
+    conv_2 = tf.layers.conv2d(conv_1, 64, name='conv_2', **params)
+    conv_2 = tf.nn.leaky_relu(batch_norm(conv_2, is_training=is_training, name='bn_2'))
+    conv_3 = tf.layers.conv2d(conv_2, 128, name='conv_3', **params)
+    conv_3 = tf.nn.leaky_relu(batch_norm(conv_3, is_training=is_training, name='bn_3'))
+
+    params = {'kernel_size': 5, 'strides': 2, 'padding': 'same',  'activation': None,
+              'use_bias': False, 'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
+    deconv_1 = tf.layers.conv2d_transpose(conv_3, 64, name='deconv_1', **params)
+    deconv_1 = tf.nn.leaky_relu(batch_norm(deconv_1, is_training=is_training))
+    deconv_2 = tf.layers.conv2d_transpose(tf.concat([deconv_1, conv_2], axis=-1), 32, name='deconv_2', **params)
+    deconv_2 = tf.nn.leaky_relu(batch_norm(deconv_2, is_training=is_training, name='bn_4'))
+    params['activation'] = None
+    params['use_bias'] = True
+    return tf.layers.conv2d_transpose(tf.concat([deconv_2, conv_1], axis=-1), 1, name='deconv_3', **params)
 
 
 def build_lenet(input_op, is_training=True):
@@ -148,6 +171,41 @@ def build_dcgan_discriminator(input_op, is_training=True, scope='UDiscriminator'
         net = tf.reshape(net, [batch_size, -1])
         logits = tf.layers.dense(net, 1, use_bias=True, kernel_initializer=tf.contrib.layers.xavier_initializer())
         return logits, end_points
+
+
+def build_vgg_pretraned_model(input_op, is_training, reuse=None):
+    upsample_params = {'kernel_size': 3, 'strides': 2, 'padding': 'same', 'use_bias': False,
+                       'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
+    conv_params = {'kernel_size': 3, 'padding': 'same', 'use_bias': False, 'activation': None,
+                   'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
+    def build_vgg_upsample_block(input_op, concat, filters):
+        upsampled = tf.layers.conv2d_transpose(input_op, filters, **upsample_params)
+        upsampled = tf.nn.relu(batch_norm(upsampled, is_training=is_training))
+        net = tf.concat([upsampled, concat], axis=-1)
+        net = tf.layers.conv2d(net, filters, **conv_params)
+        net = tf.nn.relu(batch_norm(net, is_training=is_training))
+        conv_params['use_bias'] = True
+        return tf.layers.conv2d(net, filters, **conv_params)
+
+    with slim.arg_scope(vgg.vgg_arg_scope()):
+        with slim.arg_scope([slim.layers.conv2d, slim.layers.fully_connected], reuse=reuse):
+            logits, end_points = vgg.vgg_16(input_op, is_training=True)
+
+        # Build decoder network (using UNet structure)
+        # 1/8 of the original size
+        with tf.variable_scope('Decoder', reuse=reuse):
+            net = build_vgg_upsample_block(end_points['vgg_16/conv5/conv5_3'],
+                                           end_points['vgg_16/conv4/conv4_3'],
+                                           filters=512)
+            net = tf.nn.relu(batch_norm(net, is_training=is_training, name='bn_1'))
+            # 1/4 of the original size
+            net = build_vgg_upsample_block(net, end_points['vgg_16/conv3/conv3_3'], 256)
+            net = tf.nn.relu(batch_norm(net, is_training=is_training, name='bn_2'))
+            # 1/2 of the original size
+            net = build_vgg_upsample_block(net, end_points['vgg_16/conv2/conv2_2'], 128)
+            net = tf.nn.relu(batch_norm(net, is_training=is_training, name='bn_3'))
+            net = build_vgg_upsample_block(net, end_points['vgg_16/conv1/conv1_2'], 64)
+    return net, end_points
 
 
 def build_generator_with_pconv(input_op, size, reuse, scope='PCGenerator'):

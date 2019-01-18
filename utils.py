@@ -35,7 +35,7 @@ def coord_conv(input_op, *args, **kwargs):
     return tf.layers.conv2d(input_tensor, *args, **kwargs)
 
 
-def total_variation_loss(image):
+def build_total_variation_loss(image):
     """total_variation_loss using tensorflow internal ops"""
     # Construct first derivative conv kernels along x and y axis
     batch_size, height, width, channel = image.get_shape().as_list()
@@ -50,6 +50,16 @@ def total_variation_loss(image):
     kernel_tensor = tf.constant(kernel_array, dtype=tf.float32)
     dxdy = tf.nn.conv2d(image, kernel_tensor, (1, 1, 1, 1), padding='SAME')
     return tf.reduce_sum(tf.abs(dxdy))
+
+
+def build_style_loss(input_xs, input_ys):
+    batch_size, height, width, channel = input_xs.get_shape().as_list()
+    matrix_xs = tf.reshape(input_xs, [batch_size, -1, channel])
+    matrix_ys = tf.reshape(input_ys, [batch_size, -1, channel])
+    K_p = 1.0 / (float(height) * float(width) * float(channel))
+    style_diff = tf.matmul(matrix_xs, matrix_xs, transpose_a=True) - \
+                 tf.matmul(matrix_ys, matrix_ys, transpose_a=True)
+    return tf.reduce_mean(tf.abs(K_p * style_diff))
 
 
 def random_mask(images, ratio=2, blocked_pixel_value=0.0):

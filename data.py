@@ -84,7 +84,6 @@ class CelebAReader(object):
         self.data = data.shuffle(buffer_size=1024).batch(batch_size).repeat(num_epochs)
         self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
                                    shape=[batch_size, size[0], size[1], 3])
-
         self.lossy_xs, mask = random_mask(self.batch_xs,
                                           blocked_pixel_value=tf.random_uniform([], minval=0.0, maxval=1.0))
         self.mask = tf.reduce_max(mask, axis=-1, keepdims=True)
@@ -110,7 +109,6 @@ class MnistReader(object):
         # blocked_pixel_value = tf.random_uniform([], minval=x_train.min(), maxval=x_train.max())
         self.lossy_xs, mask = random_mask(self.batch_xs, blocked_pixel_value=0.0)
         self.mask = tf.reduce_max(mask, axis=-1, keepdims=True)
-
 
 
 if __name__ == '__main__':

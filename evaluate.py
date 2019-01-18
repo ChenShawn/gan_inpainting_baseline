@@ -1,9 +1,10 @@
 import tensorflow as tf
+import numpy as np
+import cv2, os
+
 from data import MnistReader
 from utils import load
 from mnist_model import BaselineModel
-import numpy as np
-import cv2, os
 
 # arr should be 4 dimensional
 def save_image(arr, name, idx, scale=True, path='D:\\Inpainting\\generated\\'):

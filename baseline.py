@@ -72,8 +72,9 @@ class BaselineModel(object):
         # These magic coefficients are also given by the partial conv paper
         self.g_loss = g_loss + self.rec_loss + self.tv_loss + self.perceptual_loss
         # Policy loss used for pretrain
+        mask_label = tf.reduce_max(mask, axis=-1, keepdims=True)
         self.pi_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.pi_logits,
-                                                                              labels=mask))
+                                                                              labels=mask_label))
         print(' [*] Loss function definition finished')
 
         # Definition for the summaries
@@ -111,7 +112,6 @@ class BaselineModel(object):
         self.g_optim = tf.train.AdamOptimizer(args.learning_rate, 0.5, 0.9).minimize(self.g_loss, var_list=g_vars)
         self.d_optim = tf.train.AdamOptimizer(args.learning_rate, 0.5, 0.9).minimize(self.d_loss, var_list=d_vars)
         print(' [*] Optimizers definition finished')
-
 
 
 def pretrain(sess, model, global_step=0):
