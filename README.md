@@ -1,6 +1,12 @@
 # gan_inpainting_baseline
 
-Definition for runtime options
+## Update logs
+
+- **Jan 24th, 2019**
+
+Partial conv model pretrain start to run.
+
+## Definition for runtime options
 
 - Pretrain baseline policy for e.g. 10000 iterations using CelebA dataset
 ```commandline
