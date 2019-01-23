@@ -3,7 +3,7 @@ import numpy as np
 import argparse
 
 from gan_utils import *
-from utils import show_all_variables, total_variation_loss, save, load, log10
+from utils import show_all_variables, build_total_variation_loss, save, load
 from data import CelebAReader, MnistReader
 from datetime import datetime
 
@@ -58,7 +58,7 @@ class BaselineModel(object):
         self.rec_loss = args.gamma * tf.reduce_mean(tf.reduce_sum(tf.square(masked), axis=-1))
 
         # Total-Variation loss
-        self.tv_loss = args.beta * total_variation_loss(self.generator)
+        self.tv_loss = args.beta * build_total_variation_loss(self.generator)
 
         # Perceptual loss
         alpha = args.alpha
@@ -169,23 +169,6 @@ def train(sess, model, global_step=0):
     saved_path = save(sess, args.model_path, model_name=model.name + '.model', global_step=counter)
     print(' [*] Successfully save the model in ' + saved_path)
     return counter
-
-
-def evaluate(input_op, clean_imgs, eval_type):
-    batch_size = input_op.get_shape().as_list()[0]
-    input_op = tf.reshape(input_op, [batch_size, -1])
-    clean_imgs = tf.reshape(clean_imgs, [batch_size, -1])
-    if eval_type == 'mse':
-        result = tf.reduce_mean(tf.squared_difference(input_op, clean_imgs), axis=0)
-    elif eval_type == 'psnr':
-        mse = tf.reduce_mean(tf.squared_difference(input_op, clean_imgs), axis=0)
-        psnr = tf.constant(255 ** 2, dtype=tf.float32) / mse
-        result = tf.constant(10, dtype=tf.float32) * log10(psnr)
-    elif eval_type == 'ssim':
-        pass
-    else:
-        raise NotImplementedError
-    return result
 
 
 if __name__ == '__main__':

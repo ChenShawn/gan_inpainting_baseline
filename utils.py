@@ -1,7 +1,9 @@
 import tensorflow as tf
 from tensorflow.contrib import slim
 import numpy as np
-import os, re
+import math
+import os
+import re
 
 
 def show_all_variables(scope=None):
@@ -56,7 +58,7 @@ def build_style_loss(input_xs, input_ys):
     batch_size, height, width, channel = input_xs.get_shape().as_list()
     matrix_xs = tf.reshape(input_xs, [batch_size, -1, channel])
     matrix_ys = tf.reshape(input_ys, [batch_size, -1, channel])
-    K_p = 1.0 / (float(height) * float(width) * float(channel))
+    K_p = 1.0 / ((float(height) * float(width) * float(channel)) ** 2)
     style_diff = tf.matmul(matrix_xs, matrix_xs, transpose_a=True) - \
                  tf.matmul(matrix_ys, matrix_ys, transpose_a=True)
     return tf.reduce_mean(tf.abs(K_p * style_diff))
@@ -75,7 +77,7 @@ def random_mask(images, ratio=2, blocked_pixel_value=0.0):
         mask_tensor = tf.concat(paddings, axis=0)
         masking = tf.cast(mask_tensor, dtype=tf.float32)
         results = images * (1.0 - masking) + masking * blocked_pixel_value
-    return results, mask_tensor
+    return results, masking
 
 
 def save(sess, model_path, model_name, global_step, remove_previous_files=True):
@@ -107,7 +109,10 @@ def load(sess, model_path):
         return False, 0
 
 
-def log10(x):
-    numerator = tf.log(x)
-    denominator = tf.log(tf.constant(10, dtype=numerator.dtype))
-    return numerator / denominator
+def build_psnr(generated, ground_truth):
+    """build_psnr
+    TODO: This function is still nemerically unstable
+    """
+    mse = tf.square(generated - ground_truth)
+
+    return tf.log(generated + 1e-25) / math.log(10.0)

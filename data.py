@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import os
+import json
 
 from utils import random_mask
 
@@ -80,7 +81,7 @@ class CelebAReader(object):
 
         recursive_path(self.data_path, file_xs)
         data = tf.data.Dataset.from_tensor_slices((tf.constant(file_xs)))
-        data = data.map(parse_images)
+        data = data.map(parse_images, num_parallel_calls=8)
         self.data = data.shuffle(buffer_size=1024).batch(batch_size).repeat(num_epochs)
         self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
                                    shape=[batch_size, size[0], size[1], 3])
@@ -92,7 +93,10 @@ class CelebAReader(object):
 class MnistReader(object):
     data_path = 'D:\\毕业论文\\tensorflow-generative-model-collections-master\\data\\mnist.npz'
 
-    def __init__(self, size=(28, 28),batch_size=256, num_epochs=500, type='train'):
+    def __init__(self, size=(28, 28), batch_size=256, num_epochs=500, type='train'):
+        """Constructor of class MnistReader
+        :param type: either `train` or `test`
+        """
         self.batch_size = batch_size
         self.num_epochs = num_epochs
 
@@ -111,26 +115,54 @@ class MnistReader(object):
         self.mask = tf.reduce_max(mask, axis=-1, keepdims=True)
 
 
+class PlaceReader(object):
+    data_path = 'D:\\毕业论文\\data\\places\\places.json'
+
+    def __init__(self, size=(224, 224), batch_size=4, num_epochs=50, type='train'):
+        parse_images = ImageParser(size=size, suffix='jpg')
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+
+        with open(self.data_path) as f:
+            X = json.load(f)[type]
+
+        data = tf.data.Dataset.from_tensor_slices((tf.constant(X)))
+        data = data.map(parse_images)
+        self.data = data.shuffle(buffer_size=1024).batch(batch_size).repeat(num_epochs)
+        self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
+                                   shape=[batch_size, size[0], size[1], 3])
+        self.lossy_xs, self.mask = random_mask(self.batch_xs, ratio=3,
+                                   blocked_pixel_value=tf.random_uniform([], minval=0.0, maxval=1.0))
+
+        # TODO: remove this!
+        self.comp_images = self.lossy_xs * (1.0 - self.mask) + self.batch_xs * self.mask
+
+
+
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    reader = MnistReader()
+    reader = PlaceReader()
 
     with tf.Session() as sess:
-        xs, ys, mask = sess.run([reader.batch_xs, reader.lossy_xs, reader.mask])
+        xs, ys, mask, comp = sess.run([reader.batch_xs, reader.lossy_xs, reader.mask, reader.comp_images])
         print(xs.shape, ys.shape, mask.shape, xs.min(), xs.max())
 
-    for it in range(32):
+    for it in range(reader.batch_size):
         plt.figure()
-        plt.subplot(131)
-        plt.imshow(xs[it, :, :, 0], cmap='gray')
+        plt.subplot(221)
+        plt.imshow(xs[it, :, :, :])
         plt.title('Clean image')
         plt.axis('off')
-        plt.subplot(132)
+        plt.subplot(222)
         plt.title('Masked image')
-        plt.imshow(ys[it, :, :, 0], cmap='gray')
+        plt.imshow(ys[it, :, :, :])
         plt.axis('off')
-        plt.subplot(133)
+        plt.subplot(223)
         plt.title('Mask')
-        plt.imshow(mask[it, :, :, 0], cmap='gray')
+        plt.imshow(mask[it, :, :, :])
+        plt.axis('off')
+        plt.subplot(224)
+        plt.title('Comp')
+        plt.imshow(comp[it, :, :, :])
         plt.axis('off')
         plt.show()

@@ -173,38 +173,41 @@ def build_dcgan_discriminator(input_op, is_training=True, scope='UDiscriminator'
         return logits, end_points
 
 
-def build_vgg_pretraned_model(input_op, is_training, reuse=None):
+def build_vgg_pretraned_model(input_op, is_training, reuse=None, num_channels=3):
     upsample_params = {'kernel_size': 3, 'strides': 2, 'padding': 'same', 'use_bias': False,
                        'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
     conv_params = {'kernel_size': 3, 'padding': 'same', 'use_bias': False, 'activation': None,
                    'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
-    def build_vgg_upsample_block(input_op, concat, filters):
-        upsampled = tf.layers.conv2d_transpose(input_op, filters, **upsample_params)
-        upsampled = tf.nn.relu(batch_norm(upsampled, is_training=is_training))
-        net = tf.concat([upsampled, concat], axis=-1)
-        net = tf.layers.conv2d(net, filters, **conv_params)
-        net = tf.nn.relu(batch_norm(net, is_training=is_training))
-        conv_params['use_bias'] = True
-        return tf.layers.conv2d(net, filters, **conv_params)
+    def build_vgg_upsample_block(input_op, concat, filters, name):
+        with tf.variable_scope(name):
+            upsampled = tf.layers.conv2d_transpose(input_op, filters, **upsample_params)
+            upsampled = tf.nn.relu(batch_norm(upsampled, is_training=is_training, name='upbn_1'))
+            net = tf.concat([upsampled, concat], axis=-1)
+            net = tf.layers.conv2d(net, filters, **conv_params)
+            net = tf.nn.relu(batch_norm(net, is_training=is_training, name='upbn_2'))
+            conv_params['use_bias'] = True
+            return tf.layers.conv2d(net, filters, **conv_params)
 
     with slim.arg_scope(vgg.vgg_arg_scope()):
         with slim.arg_scope([slim.layers.conv2d, slim.layers.fully_connected], reuse=reuse):
-            logits, end_points = vgg.vgg_16(input_op, is_training=True)
+            logits, end_points = vgg.vgg_16(input_op, is_training=True, spatial_squeeze=False)
 
         # Build decoder network (using UNet structure)
         # 1/8 of the original size
         with tf.variable_scope('Decoder', reuse=reuse):
             net = build_vgg_upsample_block(end_points['vgg_16/conv5/conv5_3'],
                                            end_points['vgg_16/conv4/conv4_3'],
-                                           filters=512)
+                                           filters=512, name='upsample_1')
             net = tf.nn.relu(batch_norm(net, is_training=is_training, name='bn_1'))
             # 1/4 of the original size
-            net = build_vgg_upsample_block(net, end_points['vgg_16/conv3/conv3_3'], 256)
+            net = build_vgg_upsample_block(net, end_points['vgg_16/conv3/conv3_3'], 256, name='upsample_2')
             net = tf.nn.relu(batch_norm(net, is_training=is_training, name='bn_2'))
             # 1/2 of the original size
-            net = build_vgg_upsample_block(net, end_points['vgg_16/conv2/conv2_2'], 128)
+            net = build_vgg_upsample_block(net, end_points['vgg_16/conv2/conv2_2'], 128, name='upsample_3')
             net = tf.nn.relu(batch_norm(net, is_training=is_training, name='bn_3'))
-            net = build_vgg_upsample_block(net, end_points['vgg_16/conv1/conv1_2'], 64)
+            net = build_vgg_upsample_block(net, end_points['vgg_16/conv1/conv1_2'], 64, name='upsample_4')
+            net = tf.layers.conv2d(net, num_channels, kernel_size=3, padding='same',
+                                   use_bias=True, activation=tf.nn.relu)
     return net, end_points
 
 

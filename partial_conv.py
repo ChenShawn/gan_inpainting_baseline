@@ -4,8 +4,8 @@ import argparse
 from datetime import datetime
 
 from gan_utils import *
-from utils import show_all_variables, build_total_variation_loss, build_style_loss, save, load, log10
-from data import CelebAReader
+from utils import show_all_variables, build_total_variation_loss, build_style_loss, save, load
+from data import PlaceReader
 
 """
     This program is provided by ChenShawn in Jan 17th, 2019 to re-implement the paper
@@ -28,8 +28,8 @@ from data import CelebAReader
 parser = argparse.ArgumentParser()
 parser.add_argument('-d', '--dataset', type=str, default='celeba', help='support only CelebA currently')
 parser.add_argument('-f', '--function', type=str, default='train', help='`pretrain`, `train` or `eval`')
-parser.add_argument('--logdir', type=str, default='./logs', help='dir for tensorboard logs')
-parser.add_argument('--model_path', type=str, default='./ckpt', help='dir for checkpoints')
+parser.add_argument('--logdir', type=str, default='./logs/pconv/', help='dir for tensorboard logs')
+parser.add_argument('--model_path', type=str, default='./ckpt/pconv/', help='dir for checkpoints')
 parser.add_argument('-b', '--batch_size', type=int, default=6, help='batch size')
 parser.add_argument('-i', '--iterations', type=int, default=60000, help='number of training iterations')
 parser.add_argument('-p', '--pretrain', type=bool, default=True, help='whether to load model from ckpt')
@@ -65,21 +65,21 @@ class PartialConvModel(object):
         self.tv_loss = 0.1 * build_total_variation_loss(self.generator)
 
         # Perceptual loss
-        perceptual_loss = tf.reduce_mean(tf.abs(end_points['vgg_16/pool1'] - end_points_gt['vgg_16/pool1'])) + \
-            tf.reduce_mean(tf.abs(end_points['vgg_16/pool2'] - end_points_gt['vgg_16/pool2'])) + \
-            tf.reduce_mean(tf.abs(end_points['vgg_16/pool3'] - end_points_gt['vgg_16/pool3'])) + \
-            tf.reduce_mean(tf.abs(end_points_gt['vgg_16/pool1'] - end_points_comp['vgg_16/pool1'])) + \
-            tf.reduce_mean(tf.abs(end_points_gt['vgg_16/pool2'] - end_points_comp['vgg_16/pool2'])) + \
-            tf.reduce_mean(tf.abs(end_points_gt['vgg_16/pool3'] - end_points_comp['vgg_16/pool3']))
+        perceptual_loss = tf.reduce_mean(tf.abs(end_points['vgg_16/pool1'] - end_points_gt['vgg_16_1/pool1'])) + \
+            tf.reduce_mean(tf.abs(end_points['vgg_16/pool2'] - end_points_gt['vgg_16_1/pool2'])) + \
+            tf.reduce_mean(tf.abs(end_points['vgg_16/pool3'] - end_points_gt['vgg_16_1/pool3'])) + \
+            tf.reduce_mean(tf.abs(end_points_gt['vgg_16_1/pool1'] - end_points_comp['vgg_16_2/pool1'])) + \
+            tf.reduce_mean(tf.abs(end_points_gt['vgg_16_1/pool2'] - end_points_comp['vgg_16_2/pool2'])) + \
+            tf.reduce_mean(tf.abs(end_points_gt['vgg_16_1/pool3'] - end_points_comp['vgg_16_2/pool3']))
         self.perceptual_loss = 0.05 * perceptual_loss
 
         # Style loss definition
-        style_loss = build_style_loss(end_points['vgg_16/pool1'], end_points_gt['vgg_16/pool1']) + \
-            build_style_loss(end_points['vgg_16/pool2'], end_points_gt['vgg_16/pool2']) + \
-            build_style_loss(end_points['vgg_16/pool3'], end_points_gt['vgg_16/pool3']) + \
-            build_style_loss(end_points_gt['vgg_16/pool1'], end_points_comp['vgg_16/pool1']) + \
-            build_style_loss(end_points_gt['vgg_16/pool2'], end_points_comp['vgg_16/pool2']) + \
-            build_style_loss(end_points_gt['vgg_16/pool3'], end_points_comp['vgg_16/pool3'])
+        style_loss = build_style_loss(end_points['vgg_16/pool1'], end_points_gt['vgg_16_1/pool1']) + \
+            build_style_loss(end_points['vgg_16/pool2'], end_points_gt['vgg_16_1/pool2']) + \
+            build_style_loss(end_points['vgg_16/pool3'], end_points_gt['vgg_16_1/pool3']) + \
+            build_style_loss(end_points_gt['vgg_16_1/pool1'], end_points_comp['vgg_16_2/pool1']) + \
+            build_style_loss(end_points_gt['vgg_16_1/pool2'], end_points_comp['vgg_16_2/pool2']) + \
+            build_style_loss(end_points_gt['vgg_16_1/pool3'], end_points_comp['vgg_16_2/pool3'])
         self.style_loss = 120.0 * style_loss
 
         # Policy loss used for pretrain
@@ -103,12 +103,22 @@ class PartialConvModel(object):
 
             tf.summary.image('comp_image', self.comp_image),
             tf.summary.image('mask', mask)
+
         ], name='images')
         print(' [*] Summaries built finished')
 
         # Definition for optimizers
+        train_vars = tf.trainable_variables()
+        decoder_vars = [var for var in train_vars if 'Decoder' in var.name]
         self.optim = tf.train.AdamOptimizer(args.learning_rate).minimize(self.loss)
+        self.pre_optim = tf.train.AdamOptimizer(args.learning_rate).minimize(self.rec_loss, var_list=decoder_vars)
         print(' [*] Optimizers definition finished')
+
+    def load_pretrained_vgg16(self, sess, pretrained_model_dir='./pretrained_model/vgg_16.ckpt'):
+        restored_vars = slim.get_variables_to_restore(exclude=['Decoder'])
+        init_func = slim.assign_from_checkpoint_fn(pretrained_model_dir, restored_vars, ignore_missing_vars=True)
+        init_func(sess)
+        print(' [*] Model successfully loaded!')
 
 
 
@@ -118,22 +128,39 @@ def finetune(sess, model, global_step=0):
     # TODO: finish the training codes
 
 
+def pretrain_decoder(sess, model):
+    counter = 0
+    print(' [*] Start to pretrain')
+    for iter in range(args.iterations):
+        try:
+            sess.run(model.pre_optim)
+            # Write logs on screen
+            if iter % args.write_logs_every == 1:
+                loss = sess.run(model.rec_loss)
+                print(' --Time: {} --Step: {}--Loss: {}'.format(str(datetime.now()), counter, loss))
+            counter += 1
+        except tf.errors.OutOfRangeError:
+            break
+        except tf.errors.InvalidArgumentError:
+            continue
+    print(' [*] Training finished, ready to save...')
+    saved_path = save(sess, args.model_path, model_name=model.name + '.model', global_step=1)
+    print(' [*] Successfully save the model in ' + saved_path)
+
+
 def train(sess, model, global_step=0):
     counter = global_step
     writer = tf.summary.FileWriter(args.logdir, sess.graph)
-    for iter in range(args.iterations):
+    print(' [*] Start to train from global step', global_step)
+    for iter in range(20000):
         try:
-            for jt in range(args.critic_iter):
-                sess.run(model.g_optim)
-            sess.run(model.d_optim)
-
+            sess.run(model.optim)
             # Write logs for tensorboard visualization
             if iter % args.write_logs_every == 1:
-                g_sum_str, d_sum_str = sess.run([model.g_sum, model.d_sum])
-                writer.add_summary(g_sum_str, counter)
-                writer.add_summary(d_sum_str, counter)
+                sumstr = sess.run(model.scalar_sums)
+                writer.add_summary(sumstr, counter)
             if iter % args.save_images_every == 1:
-                img_sum_str = sess.run(model.img_sum)
+                img_sum_str = sess.run(model.img_sums)
                 writer.add_summary(img_sum_str, counter)
             # Update global_step
             counter += 1
@@ -147,31 +174,15 @@ def train(sess, model, global_step=0):
     return counter
 
 
-def evaluate(input_op, clean_imgs, eval_type):
-    batch_size = input_op.get_shape().as_list()[0]
-    input_op = tf.reshape(input_op, [batch_size, -1])
-    clean_imgs = tf.reshape(clean_imgs, [batch_size, -1])
-    if eval_type == 'mse':
-        result = tf.reduce_mean(tf.squared_difference(input_op, clean_imgs), axis=0)
-    elif eval_type == 'psnr':
-        mse = tf.reduce_mean(tf.squared_difference(input_op, clean_imgs), axis=0)
-        psnr = tf.constant(255 ** 2, dtype=tf.float32) / mse
-        result = tf.constant(10, dtype=tf.float32) * log10(psnr)
-    elif eval_type == 'ssim':
-        result = None
-    else:
-        raise NotImplementedError
-    return result
-
 
 
 if __name__ == '__main__':
-    if args.dataset == 'celeba':
-        print(' [*] Reading CelebA dataset...')
+    if args.dataset == 'places':
+        print(' [*] Reading places dataset...')
         # Resize the image to even size to avoid concat-time error
-        reader = CelebAReader(size=(192, 160))
+        reader = PlaceReader(size=(224, 224))
     else:
-        raise NotImplementedError('Only CelebA supported!')
+        raise NotImplementedError('Only places supported!')
 
     # Pretrain model
     if args.function == 'train':
@@ -181,16 +192,14 @@ if __name__ == '__main__':
 
         with tf.Session(config=config) as sess:
             tf.global_variables_initializer().run()
+            model.load_pretrained_vgg16(sess)
             if args.pretrain:
                 status, global_step = load(sess, args.model_path)
             else:
                 global_step = 0
             show_all_variables()
+            # pretrain_decoder(sess, model)
             train(sess, model, global_step=global_step)
 
-    elif args.function == 'eval':
-        executed = evaluate
-    elif args.function == 'train':
-        executed = pretrain
     else:
         raise NotImplementedError('Invalid function input')
