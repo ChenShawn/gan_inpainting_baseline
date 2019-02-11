@@ -19,10 +19,10 @@ parser.add_argument('-a', '--allow_growth', type=bool, default=True, help='wheth
 parser.add_argument('--gp_lambda', type=float, default=0.005, help='coefficient for GP loss term')
 parser.add_argument('--learning_rate', type=float, default=2e-4, help='learning_rate')
 parser.add_argument('--alpha', type=float, default=0.01, help='initial value of perceptual loss coefficient')
-parser.add_argument('--beta', type=float, default=1e-6, help='coefficient for TV loss')
+parser.add_argument('--beta', type=float, default=1e-4, help='coefficient for TV loss')
 parser.add_argument('--gamma', type=float, default=0.05, help='coefficient  for reconstruction loss')
 parser.add_argument('--write_logs_every', type=int, default=20, help='write_logs_every')
-parser.add_argument('--save_images_every', type=int, default=500, help='save_images_every')
+parser.add_argument('--save_images_every', type=int, default=50, help='save_images_every')
 parser.add_argument('--critic_iter', type=int, default=3, help='number of iterations to update critics')
 args = parser.parse_args()
 
@@ -33,8 +33,12 @@ class BaselineModel(object):
     def __init__(self, input_op, clean_image, mask, is_training=True, num_channels=3):
         with tf.variable_scope(self.name):
             self.generator = build_unet_generator(input_op, is_training=is_training, num_channels=num_channels)
+            # add mask network
             self.pi_logits, self.pi_probs = build_unet_policy(input_op, is_training=is_training)
-            self.pi_mask = tf.cast(self.pi_probs < 0.5, dtype=tf.float32, name='mask')
+
+            # pi_mask 用判断的方式
+
+            self.pi_mask = tf.cast(self.pi_probs<0.5, dtype=tf.float32, name='mask')
             self.d_real, real_ends = build_dcgan_discriminator(clean_image, is_training)
             self.d_fake, fake_ends = build_dcgan_discriminator(self.generator, is_training, reuse=True)
         print(' [*] Build model finished')
@@ -47,10 +51,15 @@ class BaselineModel(object):
         g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.d_fake,
                                                                         labels=tf.ones_like(self.d_fake)))
 
+        d_real_hubers = tf.reduce_sum(tf.losses.huber_loss(labels=tf.ones_like(self.d_real), predictions=self.d_real, delta=1.35))
+        d_fake_hubers = tf.reduce_sum(tf.losses.huber_loss(labels=tf.zeros_like(self.d_real), predictions=self.d_fake, delta=1.35))
+
+        d_hubers = d_real_hubers + d_fake_hubers
+
         # Still attempt to use 2-norm to regularize D
         gp_vars = [var for var in tf.trainable_variables() if 'Discriminator' in var.name]
         gp = args.gp_lambda * tf.add_n([tf.reduce_sum(tf.square(var)) for var in gp_vars])
-        self.d_loss = d_real_loss + d_fake_loss + gp
+        self.d_loss = d_real_loss + d_fake_loss + gp + 0.0001 * d_hubers
 
         # Reconstruction loss (termed as valid loss in partial-conv paper)
         masked = (self.generator - input_op) * self.pi_mask
@@ -88,6 +97,7 @@ class BaselineModel(object):
             tf.summary.scalar('d_real', d_real_loss),
             tf.summary.scalar('d_fake', d_fake_loss),
             tf.summary.scalar('gp', gp),
+            tf.summary.scalar('huber', d_hubers),
             tf.summary.scalar('d_total', self.d_loss),
             tf.summary.histogram('d_real_hist', self.d_real),
             tf.summary.histogram('d_fake_hist', self.d_fake)
@@ -177,7 +187,7 @@ if __name__ == '__main__':
     if args.dataset == 'celeba':
         print(' [*] Reading CelebA dataset...')
         # Resize the image to even size to avoid concat-time error
-        reader = CelebAReader(size=(192, 160))
+        reader = CelebAReader(size=(192, 160), batch_size=32)
     else:
         raise NotImplementedError('Only CelebA supported!')
 
@@ -195,9 +205,6 @@ if __name__ == '__main__':
                 global_step = 0
             show_all_variables()
             train(sess, model, global_step=global_step)
-
-    elif args.function == 'eval':
-        executed = evaluate
     elif args.function == 'pretrain':
         executed = pretrain
     else:

@@ -4,6 +4,7 @@ import numpy as np
 import math
 import os
 import re
+import extra
 
 
 def show_all_variables(scope=None):
@@ -51,7 +52,7 @@ def build_total_variation_loss(image):
     # Convert them into tf tensors and convolve
     kernel_tensor = tf.constant(kernel_array, dtype=tf.float32)
     dxdy = tf.nn.conv2d(image, kernel_tensor, (1, 1, 1, 1), padding='SAME')
-    return tf.reduce_sum(tf.abs(dxdy))
+    return tf.reduce_mean(tf.abs(dxdy))
 
 
 def build_style_loss(input_xs, input_ys):
@@ -116,3 +117,26 @@ def build_psnr(generated, ground_truth):
     mse = tf.square(generated - ground_truth)
 
     return tf.log(generated + 1e-25) / math.log(10.0)
+
+
+def attention(x, ch, sn, reuse):
+    """
+    :param x: input_op
+    :param ch: input channel
+    :param sn: isNorm
+    :param reuse
+    :return:
+    """
+    with tf.variable_scope('attention', reuse=reuse):
+        f = extra.ops.conv(x, ch, kernel=1, stride=1, sn=sn, scope='f_conv') # [bs, h, w, c']
+        g = extra.ops.conv(x, ch, kernel=1, stride=1, sn=sn, scope='g_conv') # [bs, h, w, c']
+        h = extra.ops.conv(x, ch, kernel=1, stride=1, sn=sn, scope='h_conv') # [bs, h, w, c]
+        #  N = h * w
+        s = tf.matmul(extra.ops.hw_flatten(g), extra.ops.hw_flatten(f), transpose_b=True) # # [bs, N, N]
+        beta = tf.nn.softmax(s)  # attention map
+        o = tf.matmul(beta, extra.ops.hw_flatten(h)) # [bs, N, C]
+        gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
+        o = tf.reshape(o, shape=x.shape) # [bs, h, w, C]
+        x = gamma * o + x
+    return x
+

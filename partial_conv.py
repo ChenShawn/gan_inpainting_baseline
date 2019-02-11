@@ -59,10 +59,10 @@ class PartialConvModel(object):
         mse = tf.square(self.generator - clean_image)
         hole_loss = tf.reduce_mean(tf.reduce_sum(tf.reshape(mask * mse, [args.batch_size, -1]), axis=-1))
         valid_loss = tf.reduce_mean(tf.reduce_sum(tf.reshape((1.0 - mask) * mse, [args.batch_size, -1]), axis=-1))
-        self.rec_loss = 6.0 * hole_loss + valid_loss
+        self.rec_loss = 0.01 * (6.0 * hole_loss + valid_loss)
 
-        # Total-Variation loss
-        self.tv_loss = 0.1 * build_total_variation_loss(self.generator)
+        # Total-Variation loss 0.1
+        self.tv_loss = 0.5 * build_total_variation_loss(self.generator)
 
         # Perceptual loss
         perceptual_loss = tf.reduce_mean(tf.abs(end_points['vgg_16/pool1'] - end_points_gt['vgg_16_1/pool1'])) + \
@@ -152,7 +152,7 @@ def train(sess, model, global_step=0):
     counter = global_step
     writer = tf.summary.FileWriter(args.logdir, sess.graph)
     print(' [*] Start to train from global step', global_step)
-    for iter in range(20000):
+    for iter in range(args.iterations):
         try:
             sess.run(model.optim)
             # Write logs for tensorboard visualization

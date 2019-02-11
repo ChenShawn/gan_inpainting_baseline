@@ -170,6 +170,8 @@ def train(sess, model, global_step=0):
     print(' [*] Successfully save the model in ' + saved_path)
     return counter
 
+def evaluate():
+    pass
 
 if __name__ == '__main__':
     if args.dataset == 'celeba':

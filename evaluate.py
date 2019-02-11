@@ -178,6 +178,7 @@ def test_dataset(dataset, readermodel, basemodel):
 
 
 
+
 if __name__=='__main__':
     #reader = PlaceReader()
     # model = PartialConvModel(reader.lossy_xs, reader.batch_xs, reader.mask, is_training=False)

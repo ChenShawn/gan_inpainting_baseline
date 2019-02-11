@@ -1,5 +1,5 @@
 import tensorflow as tf
-from utils import batch_norm, coord_conv
+from utils import batch_norm, coord_conv, attention
 from tensorflow.contrib.slim.nets import vgg
 from tensorflow.contrib import slim
 
@@ -25,7 +25,7 @@ def build_lenet(input_op, is_training=True):
     return tf.layers.conv2d_transpose(tf.concat([deconv_2, conv_1], axis=-1), 1, name='deconv_3', **params)
 
 
-def build_lenet(input_op, is_training=True):
+def build_lenet1(input_op, is_training=True):
     params = {'kernel_size': 5, 'padding': 'same', 'use_bias': False,
               'strides': 2, 'kernel_initializer': tf.contrib.layers.xavier_initializer_conv2d()}
     conv_1 = coord_conv(input_op, 32, name='conv_1', **params)
@@ -127,6 +127,8 @@ def build_unet_generator(input_op, is_training=True, num_channels=3, reuse=False
     """
     with tf.variable_scope(scope, reuse=reuse):
         logits = build_unet(input_op, is_training=is_training, num_channels=num_channels)
+        # build attention
+
         return last_layer_activation(logits, **kwargs)
 
 
@@ -140,8 +142,72 @@ def build_unet_policy(input_op, is_training=True, scope='UPolicy', reuse=False):
     probs is used as a discrete distribution from which the behavior policy is sampled from
     """
     with tf.variable_scope(scope, reuse=reuse):
-        logits = build_unet(input_op, is_training=is_training, num_channels=1)
-        probs = tf.sigmoid(logits)
+        # Definition of encoder network
+        conv_1 = coord_conv(input_op, 64, kernel_size=3, padding='same', name='conv_1', use_bias=False,
+                            kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
+        conv_1 = tf.nn.relu(batch_norm(conv_1, is_training=is_training, name='bn_1'))
+        pool_1 = tf.layers.max_pooling2d(conv_1, pool_size=2, strides=2)
+
+        conv_2 = coord_conv(pool_1, 128, kernel_size=3, padding='same', name='conv_2', use_bias=False,
+                            kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
+        conv_2 = tf.nn.relu(batch_norm(conv_2, is_training=is_training, name='bn_2'))
+        pool_2 = tf.layers.max_pooling2d(conv_2, pool_size=2, strides=2)
+
+        conv_3 = coord_conv(pool_2, 256, kernel_size=3, padding='same', name='conv_3', use_bias=False,
+                            kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
+        conv_3 = tf.nn.relu(batch_norm(conv_3, is_training=is_training, name='bn_3'))
+
+        # Definition of decoder network
+        deconv_1 = tf.layers.conv2d_transpose(conv_3, filters=128, kernel_size=3, strides=2, padding='same',
+                                              name='deconv_1', use_bias=True, activation=tf.nn.relu,
+                                              kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
+        concat_1 = tf.concat([deconv_1, conv_2], axis=-1, name='concat_1')
+        conv_4 = tf.layers.conv2d(concat_1, 128, kernel_size=3, padding='same', name='conv_4', use_bias=False,
+                                  kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
+        conv_4 = tf.nn.relu(batch_norm(conv_4, is_training=is_training, name='bn_4'))
+
+        deconv_2 = tf.layers.conv2d_transpose(conv_4, filters=64, kernel_size=3, strides=2, padding='same',
+                                              name='deconv_2', use_bias=True, activation=tf.nn.relu,
+                                              kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
+        concat_2 = tf.concat([deconv_2, conv_1], axis=-1, name='concat_2')
+        conv_5 = tf.layers.conv2d(concat_2, 64, kernel_size=3, padding='same', name='conv_5', use_bias=False,
+                                   kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
+        conv_5 = tf.nn.relu(batch_norm(conv_5, is_training=is_training, name='bn_5'))
+
+        # attention
+        """
+
+        x= tf.pad(conv_5, [[0, 0], [0, 0], [0, 0], [0, 0]])
+        f = tf.layers.conv2d(inputs=x, filters=8,
+                             kernel_size=1, kernel_initializer=tf.random_normal_initializer(mean=0.0, stddev=0.02),
+                             kernel_regularizer=None,
+                             strides=1, use_bias=False)
+        g = tf.layers.conv2d(inputs=x, filters=8,
+                             kernel_size=1, kernel_initializer=tf.random_normal_initializer(mean=0.0, stddev=0.02),
+                             kernel_regularizer=None,
+                             strides=1, use_bias=False)
+        h = tf.layers.conv2d(inputs=x, filters=64,
+                             kernel_size=1, kernel_initializer=tf.random_normal_initializer(mean=0.0, stddev=0.02),
+                             kernel_regularizer=None,
+                             strides=1, use_bias=False)
+        g = tf.reshape(g, shape=[g.shape[0], -1, g.shape[-1]])
+        f = tf.reshape(f, shape=[f.shape[0], -1, f.shape[-1]])
+        s = tf.matmul(g, f, transpose_b=True) # # [bs, N, N]
+        beta = tf.nn.softmax(s)  # attention map
+
+        h = tf.reshape(h, shape=[h.shape[0], -1, h.shape[-1]])
+        o = tf.matmul(beta, h) # [bs, N, C]
+        gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
+        o = tf.reshape(o, shape=x.shape) # [bs, h, w, C]
+        x = gamma * o + x
+                """
+        logits = tf.layers.conv2d(conv_5, 1, kernel_size=3, padding='same', name='conv_6', use_bias=False,
+                                   kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d())
+        probs = tf.nn.softmax(batch_norm(logits, is_training=is_training, name='bn_6'))
+        # logits = build_unet(input_op, is_training=is_training, num_channels=1)
+        # I will predict mas
+        #probs = attention(logits, ch=1, sn=False, reuse=reuse)
+        #probs = tf.sigmoid(logits)
     return logits, probs
 
 
