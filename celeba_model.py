@@ -17,12 +17,12 @@ parser.add_argument('-i', '--iterations', type=int, default=60000, help='number 
 parser.add_argument('-p', '--pretrain', type=bool, default=True, help='whether to load model from ckpt')
 parser.add_argument('-a', '--allow_growth', type=bool, default=True, help='whether to grab all gpu resources')
 parser.add_argument('--gp_lambda', type=float, default=0.005, help='coefficient for GP loss term')
-parser.add_argument('--learning_rate', type=float, default=2e-4, help='learning_rate')
+parser.add_argument('--learning_rate', type=float, default=2e-5, help='learning_rate')
 parser.add_argument('--alpha', type=float, default=0.01, help='initial value of perceptual loss coefficient')
 parser.add_argument('--beta', type=float, default=1e-4, help='coefficient for TV loss')
 parser.add_argument('--gamma', type=float, default=0.05, help='coefficient  for reconstruction loss')
 parser.add_argument('--write_logs_every', type=int, default=20, help='write_logs_every')
-parser.add_argument('--save_images_every', type=int, default=50, help='save_images_every')
+parser.add_argument('--save_images_every', type=int, default=100, help='save_images_every')
 parser.add_argument('--critic_iter', type=int, default=3, help='number of iterations to update critics')
 args = parser.parse_args()
 
@@ -34,11 +34,11 @@ class BaselineModel(object):
         with tf.variable_scope(self.name):
             self.generator = build_unet_generator(input_op, is_training=is_training, num_channels=num_channels)
             # add mask network
-            self.pi_logits, self.pi_probs = build_unet_policy(input_op, is_training=is_training)
+            #self.pi_logits, self.pi_probs = build_unet_policy(input_op, is_training=is_training)
 
             # pi_mask 用判断的方式
-
-            self.pi_mask = tf.cast(self.pi_probs<0.5, dtype=tf.float32, name='mask')
+            self.pi_mask = tf.cast(mask>=0.5, dtype=tf.float32, name='mask')
+            pi_mask_revise = tf.cast(mask<0.5, dtype=tf.float32, name='mask')
             self.d_real, real_ends = build_dcgan_discriminator(clean_image, is_training)
             self.d_fake, fake_ends = build_dcgan_discriminator(self.generator, is_training, reuse=True)
         print(' [*] Build model finished')
@@ -81,8 +81,7 @@ class BaselineModel(object):
         # These magic coefficients are also given by the partial conv paper
         self.g_loss = g_loss + self.rec_loss + self.tv_loss + self.perceptual_loss
         # Policy loss used for pretrain
-        self.pi_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.pi_logits,
-                                                                              labels=mask))
+        #self.pi_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.pi_logits, labels=mask))
         print(' [*] Loss function definition finished')
 
         # Definition for the summaries
@@ -105,11 +104,11 @@ class BaselineModel(object):
         self.img_sum = tf.summary.merge([
             tf.summary.image('input_op', input_op),
             tf.summary.image('clean_image', clean_image),
-            tf.summary.image('predicted_mask', self.pi_probs),
+            #tf.summary.image('predicted_mask', self.pi_probs),
             tf.summary.image('ground_truth_mask', mask),
-            tf.summary.image('generator', self.generator)
+            tf.summary.image('generator', input_op*pi_mask_revise+self.generator*self.pi_mask)
         ], name='img_sums')
-        self.pi_sum = tf.summary.scalar('pi_loss', self.pi_loss)
+        #self.pi_sum = tf.summary.scalar('pi_loss', self.pi_loss)
         print(' [*] Summaries built finished')
 
         # Definition for optimizers
@@ -117,7 +116,7 @@ class BaselineModel(object):
         pi_vars = [var for var in train_vars if 'Policy' in var.name]
         g_vars = [var for var in train_vars if 'Generator' in var.name]
         d_vars = [var for var in train_vars if 'Discriminator' in var.name]
-        self.pi_optim = tf.train.AdamOptimizer(args.learning_rate).minimize(self.pi_loss, var_list=pi_vars)
+        #self.pi_optim = tf.train.AdamOptimizer(args.learning_rate).minimize(self.pi_loss, var_list=pi_vars)
         self.g_optim = tf.train.AdamOptimizer(args.learning_rate, 0.5, 0.9).minimize(self.g_loss, var_list=g_vars)
         self.d_optim = tf.train.AdamOptimizer(args.learning_rate, 0.5, 0.9).minimize(self.d_loss, var_list=d_vars)
         print(' [*] Optimizers definition finished')
@@ -128,13 +127,15 @@ def pretrain(sess, model, global_step=0):
     counter = global_step
     print(' [*] Start training in global step', counter)
     writer = tf.summary.FileWriter(args.logdir, sess.graph)
-    for iter in range(args.iterations):
+    for iter in range(1000):
         try:
-            sess.run(model.pi_optim)
+            #sess.run(model.pi_optim)
             # Write logs for tensorboard visualization
+            """
             if iter % args.write_logs_every == 1:
                 sum_str = sess.run(model.pi_sum)
                 writer.add_summary(sum_str, counter)
+            """
             if iter % args.save_images_every == 1:
                 sum_str = sess.run(model.img_sum)
                 writer.add_summary(sum_str, counter)
@@ -204,6 +205,7 @@ if __name__ == '__main__':
             else:
                 global_step = 0
             show_all_variables()
+            pretrain(sess, model, global_step=global_step)
             train(sess, model, global_step=global_step)
     elif args.function == 'pretrain':
         executed = pretrain
