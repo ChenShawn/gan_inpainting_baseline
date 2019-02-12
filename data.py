@@ -3,7 +3,7 @@ import tensorflow as tf
 import os
 import json
 
-from utils import random_mask, gaussian_blur_masks
+from utils import random_mask, gaussian_blur_masks, dropout_masks
 
 
 class ImageParser(object):
@@ -76,7 +76,7 @@ class CelebAReader(object):
 
     def __init__(self, size=(218, 178), batch_size=32, num_epochs=50, mask_type='blur'):
         """CelebAReader constructor
-        :param mask_type: either `block` or `blur`
+        :param mask_type: either `block`, `dropout` or `blur`
         """
         file_xs = list()
         parse_images = ImageParser(size=size, suffix='jpg')
@@ -93,6 +93,8 @@ class CelebAReader(object):
             self.lossy_xs, mask = random_mask(self.batch_xs, blocked_pixel_value=blocked_pixel_value)
         elif mask_type == 'blur':
             self.lossy_xs, mask = gaussian_blur_masks(self.batch_xs)
+        elif mask_type == 'dropout':
+            self.lossy_xs, mask = dropout_masks(self.batch_xs)
         else:
             raise NotImplementedError
         self.mask = tf.reduce_max(mask, axis=-1, keepdims=True)
@@ -129,7 +131,7 @@ class PlaceReader(object):
     def __init__(self, size=(224, 224), batch_size=4, num_epochs=50, type='train', mask_type='blur'):
         """PlaceReader constructor
         :param type: either `train` or `test`
-        :param mask_type: either `block` or `blur`
+        :param mask_type: either `block`, `dropout` or `blur`
         """
         parse_images = ImageParser(size=size, suffix='jpg')
         self.batch_size = batch_size
@@ -149,6 +151,8 @@ class PlaceReader(object):
                                                    blocked_pixel_value=blocked_pixel_value)
         elif mask_type == 'blur':
             self.lossy_xs, self.mask = gaussian_blur_masks(self.batch_xs, ratio=ratio)
+        elif mask_type == 'dropout':
+            self.lossy_xs, self.mask = dropout_masks(self.batch_xs, ratio=ratio)
         else:
             raise NotImplementedError
 

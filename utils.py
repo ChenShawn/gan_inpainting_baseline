@@ -168,3 +168,10 @@ def gaussian_blur_masks(images, ratio=2, kernel_size=9, sigma=4.0):
     blur = tf.nn.conv2d(images, kernel, strides=(1, 1, 1, 1), padding='SAME')
     result = blur * mask + images * (1.0 - mask)
     return result, mask
+
+
+def dropout_masks(images, ratio, keep_prob=0.5):
+    results, mask = random_mask(image, ratio=ratio)
+    droppped = tf.nn.dropout(images, keep_prob=0.5)
+    result = dropped * mask + images * (1.0 - mask)
+    return result, mask
