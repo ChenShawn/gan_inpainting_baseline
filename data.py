@@ -3,7 +3,7 @@ import tensorflow as tf
 import os
 import json
 
-from utils import random_mask
+from utils import random_mask, gaussian_blur_masks
 
 
 class ImageParser(object):
@@ -74,7 +74,10 @@ def recursive_path(path, result, word=None):
 class CelebAReader(object):
     data_path = 'D:\\毕业论文\\data\\CelebA\\img_align_celeba\\'
 
-    def __init__(self, size=(218, 178), batch_size=32, num_epochs=50):
+    def __init__(self, size=(218, 178), batch_size=32, num_epochs=50, mask_type='blur'):
+        """CelebAReader constructor
+        :param mask_type: either `block` or `blur`
+        """
         file_xs = list()
         parse_images = ImageParser(size=size, suffix='jpg')
         self.batch_size = batch_size
@@ -85,8 +88,13 @@ class CelebAReader(object):
         self.data = data.shuffle(buffer_size=1024).batch(batch_size).repeat(num_epochs)
         self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
                                    shape=[batch_size, size[0], size[1], 3])
-        self.lossy_xs, mask = random_mask(self.batch_xs,
-                                          blocked_pixel_value=tf.random_uniform([], minval=0.0, maxval=1.0))
+        if mask_type == 'block':
+            blocked_pixel_value = tf.random_uniform([], minval=0.0, maxval=1.0)
+            self.lossy_xs, mask = random_mask(self.batch_xs, blocked_pixel_value=blocked_pixel_value)
+        elif mask_type == 'blur':
+            self.lossy_xs, mask = gaussian_blur_masks(self.batch_xs)
+        else:
+            raise NotImplementedError
         self.mask = tf.reduce_max(mask, axis=-1, keepdims=True)
 
 
@@ -118,7 +126,11 @@ class MnistReader(object):
 class PlaceReader(object):
     data_path = 'D:\\毕业论文\\data\\places\\places.json'
 
-    def __init__(self, size=(224, 224), batch_size=4, num_epochs=50, type='train'):
+    def __init__(self, size=(224, 224), batch_size=4, num_epochs=50, type='train', mask_type='blur'):
+        """PlaceReader constructor
+        :param type: either `train` or `test`
+        :param mask_type: either `block` or `blur`
+        """
         parse_images = ImageParser(size=size, suffix='jpg')
         self.batch_size = batch_size
         self.num_epochs = num_epochs
@@ -131,8 +143,14 @@ class PlaceReader(object):
         self.data = data.shuffle(buffer_size=1024).batch(batch_size).repeat(num_epochs)
         self.batch_xs = tf.reshape(self.data.make_one_shot_iterator().get_next(),
                                    shape=[batch_size, size[0], size[1], 3])
-        self.lossy_xs, self.mask = random_mask(self.batch_xs, ratio=3,
-                                   blocked_pixel_value=tf.random_uniform([], minval=0.0, maxval=1.0))
+        if mask_type == 'block':
+            blocked_pixel_value = tf.random_uniform([], minval=0.0, maxval=1.0)
+            self.lossy_xs, self.mask = random_mask(self.batch_xs, ratio=3,
+                                                   blocked_pixel_value=blocked_pixel_value)
+        elif mask_type == 'blur':
+            self.lossy_xs, self.mask = gaussian_blur_masks(self.batch_xs, ratio=ratio)
+        else:
+            raise NotImplementedError
 
         # TODO: remove this!
         self.comp_images = self.lossy_xs * (1.0 - self.mask) + self.batch_xs * self.mask

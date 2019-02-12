@@ -140,3 +140,31 @@ def attention(x, ch, sn, reuse):
         x = gamma * o + x
     return x
 
+
+def gen_gaussian_kernel(channel, kernel_size=9, sigma=4.0):
+    def gaussian(x, sigma):
+        dist = (x ** 2.0) / (sigma ** 2.0)
+        return 1.0 / (math.sqrt(2.0 * math.pi) * sigma) * math.exp(-0.5 * dist)
+
+    kernel = np.ones([kernel_size, kernel_size, channel, channel], dtype=np.float32)
+    for row in range(kernel_size):
+        for col in range(kernel_size):
+            dist = math.sqrt(float(row) ** 2.0 + float(col) ** 2.0)
+            kernel[row, col, :, :] = gaussian(dist)
+    total = kernel.sum() / float(channel)
+    kernel /= total
+    return kernel
+
+
+def gaussian_blur_masks(images, ratio=2, kernel_size=9, sigma=4.0):
+    """gaussian_blur_masks
+    :param images: tensorflow op
+    :param ratio: see random_mask
+    :param kernel_size: type int, the size of Gaussian kernel
+    """
+    results, mask = random_mask(image, ratio=ratio)
+    batch_size, _, _, channel = images.get_shape().as_list()
+    kernel = gen_gaussian_kernel(channel, kernel_size, sigma)
+    blur = tf.nn.conv2d(images, kernel, strides=(1, 1, 1, 1), padding='SAME')
+    result = blur * mask + images * (1.0 - mask)
+    return result, mask
